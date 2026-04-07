@@ -537,7 +537,7 @@ __global__ void kernel_dotAprod_fluid_3D_NodeByNode_Pore(cudapcgVar_t *K, cudapc
 
 __global__ void kernel_dotAprod_fluid_3D_NodeByNode_Border(cudapcgVar_t *K, cudapcgVar_t *v, unsigned int dim, cudapcgFlag_t *FluidMap, cudapcgIdMap_t *NodeMap, cudapcgIdMap_t *DOFMap, unsigned int nVelocityNodes, unsigned int nx, unsigned int ny, unsigned int nz, double *res);
 
-__global__ void kernel_dot2Aprod_fluid_3D_NodeByNode_Pore(cudapcgVar_t *K, cudapcgVar_t *v, unsigned int dim, cudapcgIdMap_t *NodeMap, cudapcgIdMap_t *DOFMap, unsigned int nx, unsigned int ny, unsigned int nz, double *res);
+__global__ void kernel_dotA2prod_fluid_3D_NodeByNode_Pore(cudapcgVar_t *K, cudapcgVar_t *v, unsigned int dim, cudapcgIdMap_t *NodeMap, cudapcgIdMap_t *DOFMap, unsigned int nx, unsigned int ny, unsigned int nz, double *res);
 
 __global__ void kernel_dotA2prod_fluid_3D_NodeByNode_Border(cudapcgVar_t *K, cudapcgVar_t *v, unsigned int dim, cudapcgFlag_t *FluidMap, cudapcgIdMap_t *NodeMap, cudapcgIdMap_t *DOFMap, unsigned int nVelocityNodes, unsigned int nx, unsigned int ny, unsigned int nz, double *res);
 
