@@ -43,6 +43,11 @@ void free_model_arrs(hmgModel_t * model);
 void assemble_coarse_copy(hmgModel_t * coarse_model, hmgModel_t * original_model);
 void saveFields();
 //------------------------------------------------------------------------------
+static void init_props_keys_to_invalid(hmgModel_t *model);
+static logical is_defined_material_label(unsigned char label);
+static logical assign_material_index_or_fail(unsigned int out_idx, unsigned char label, const char *where);
+static logical validate_elem_material_map_full(const char *where);
+//------------------------------------------------------------------------------
 
 //---------------------------------
 ///////////////////////////////////
@@ -125,6 +130,39 @@ void estimate_memory(hmgModel_t *model, size_t *mem_maps, size_t *mem_solver){
 }
 //------------------------------------------------------------------------------
 
+
+static void init_props_keys_to_invalid(hmgModel_t *model){
+  if (model == NULL) return;
+  for (unsigned int i=0; i<MAX_COLORNUM; ++i)
+    model->props_keys[i] = 0xFF;
+}
+//------------------------------------------------------------------------------
+static logical is_defined_material_label(unsigned char label){
+  return hmgModel != NULL && hmgModel->props_keys[label] != 0xFF;
+}
+//------------------------------------------------------------------------------
+static logical assign_material_index_or_fail(unsigned int out_idx, unsigned char label, const char *where){
+  if (!is_defined_material_label(label)){
+    printf("ERROR: Undefined material label %u found while reading %s at output index %u.\n",label,where,out_idx);
+    return HMG_FALSE;
+  }
+  hmgModel->elem_material_map[out_idx] = (cudapcgMap_t) hmgModel->props_keys[label];
+  return HMG_TRUE;
+}
+//------------------------------------------------------------------------------
+static logical validate_elem_material_map_full(const char *where){
+  if (hmgModel == NULL || hmgModel->elem_material_map == NULL) return HMG_FALSE;
+
+  for (unsigned int e=0; e<hmgModel->m_nelem; ++e){
+    if (hmgModel->elem_material_map[e] >= hmgModel->m_nmat){
+      printf("ERROR: elem_material_map out of range after %s. elem=%u mat=%u m_nmat=%u\n",
+             where, e, (unsigned int) hmgModel->elem_material_map[e], hmgModel->m_nmat);
+      return HMG_FALSE;
+    }
+  }
+  return HMG_TRUE;
+}
+//------------------------------------------------------------------------------
 //---------------------------------
 ///////////////////////////////////
 //////// PUBLIC FUNCTIONS /////////
@@ -168,6 +206,8 @@ logical hmgInit(char * data_filename, char * elem_filename, char * sdf_filename,
   hmgModel->m_fieldsByElem_flag = 0;
 
   hmgModel->m_scalar_field_data_type_flag = HMG_FLOAT32;
+
+  init_props_keys_to_invalid(hmgModel);
 
   hmgModel->poremap_flag = default_poremap_flag;
   
@@ -228,6 +268,12 @@ logical hmgInit(char * data_filename, char * elem_filename, char * sdf_filename,
 
   // Read elem map input file
   if (!readMaterialMap(elem_filename, npdata)){
+    free(hmgModel->elem_material_map);
+    free(hmgModel);
+    return HMG_FALSE;
+  }
+
+  if (!validate_elem_material_map_full("readMaterialMap")){
     free(hmgModel->elem_material_map);
     free(hmgModel);
     return HMG_FALSE;
@@ -1620,7 +1666,10 @@ logical readMaterialMapNF(char * filename){
         for (i=0;i<hmgModel->m_nelem;i++){
           if (fscanf(file, "%hhu", &buffer)!=EOF){; // data is 8bit
             printf("\r    Getting image from .nf...[%3d%%]",(++count*100)/num_of_voxels);
-            hmgModel->elem_material_map[i] = (cudapcgMap_t) hmgModel->props_keys[buffer];
+            if (!assign_material_index_or_fail(i, buffer, ".nf")){
+              fclose(file);
+              return HMG_FALSE;
+            }
           } else {
              // If reached EOF before expected, return false
             fclose(file);
@@ -1666,7 +1715,10 @@ logical readMaterialMapRAW(char * filename){
           for (kk = hmgModel->m_mesh_refinement*k; kk<(hmgModel->m_mesh_refinement*(k+1)*(hmgModel->m_nz>0)+(hmgModel->m_nz<1)); kk++){
             for (ii = hmgModel->m_mesh_refinement*i; ii<hmgModel->m_mesh_refinement*(i+1); ii++){
               for (jj = hmgModel->m_mesh_refinement*j; jj<hmgModel->m_mesh_refinement*(j+1); jj++){
-                hmgModel->elem_material_map[ii+jj*rows_ref+kk*rows_ref*cols_ref] = (cudapcgMap_t) hmgModel->props_keys[buffer];
+                if (!assign_material_index_or_fail(ii+jj*rows_ref+kk*rows_ref*cols_ref, buffer, ".raw")){
+                  fclose(file);
+                  return HMG_FALSE;
+                }
               }
             }
           }
@@ -1686,7 +1738,10 @@ logical readMaterialMapRAW(char * filename){
             for (kk = hmgModel->m_mesh_refinement*k; kk<(hmgModel->m_mesh_refinement*(k+1)*(hmgModel->m_nz>0)+(hmgModel->m_nz<1)); kk++){
               for (ii = hmgModel->m_mesh_refinement*i; ii<hmgModel->m_mesh_refinement*(i+1); ii++){
                 for (jj = hmgModel->m_mesh_refinement*j; jj<hmgModel->m_mesh_refinement*(j+1); jj++){
-                  hmgModel->elem_material_map[ii+jj*rows_ref+kk*rows_ref*cols_ref] = (cudapcgMap_t) hmgModel->props_keys[buffer];
+                  if (!assign_material_index_or_fail(ii+jj*rows_ref+kk*rows_ref*cols_ref, buffer, ".raw")){
+                  fclose(file);
+                  return HMG_FALSE;
+                }
                 }
               }
             }
@@ -1731,7 +1786,9 @@ logical readMaterialMapNumpy(uint8_t* npdata){
       for (kk = hmgModel->m_mesh_refinement*k; kk<(hmgModel->m_mesh_refinement*(k+1)*(hmgModel->m_nz>0)+(hmgModel->m_nz<1)); kk++){
         for (ii = hmgModel->m_mesh_refinement*i; ii<hmgModel->m_mesh_refinement*(i+1); ii++){
           for (jj = hmgModel->m_mesh_refinement*j; jj<hmgModel->m_mesh_refinement*(j+1); jj++){
-            hmgModel->elem_material_map[ii+jj*rows_ref+kk*rows_ref*cols_ref] = (cudapcgMap_t) hmgModel->props_keys[buffer];
+            if (!assign_material_index_or_fail(ii+jj*rows_ref+kk*rows_ref*cols_ref, buffer, "numpy")){
+              return HMG_FALSE;
+            }
           }
         }
       }
@@ -1745,7 +1802,9 @@ logical readMaterialMapNumpy(uint8_t* npdata){
         for (kk = hmgModel->m_mesh_refinement*k; kk<(hmgModel->m_mesh_refinement*(k+1)*(hmgModel->m_nz>0)+(hmgModel->m_nz<1)); kk++){
           for (ii = hmgModel->m_mesh_refinement*i; ii<hmgModel->m_mesh_refinement*(i+1); ii++){
             for (jj = hmgModel->m_mesh_refinement*j; jj<hmgModel->m_mesh_refinement*(j+1); jj++){
-              hmgModel->elem_material_map[ii+jj*rows_ref+kk*rows_ref*cols_ref] = (cudapcgMap_t) hmgModel->props_keys[buffer];
+              if (!assign_material_index_or_fail(ii+jj*rows_ref+kk*rows_ref*cols_ref, buffer, "numpy")){
+              return HMG_FALSE;
+            }
             }
           }
         }
